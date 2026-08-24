@@ -103,8 +103,6 @@ class BuySell:
         if code != "00000":
             raise RuntimeError(f"Bitget API error: code={code}, msg={json_result.get('msg')}, data={json_result.get('data')}")
 
-    # ====== Signed HTTP helpers ======
-    # --- replace your _signed_get with this (adds better errors) ---
     def _signed_get(self, path: str, params: Dict[str, str]) -> Dict[str, Any]:
         qs = urlencode(params, doseq=True)
         path_q = f"{path}?{qs}" if qs else path
@@ -132,7 +130,6 @@ class BuySell:
         self._check_api_result(data)
         return data
 
-    # --- force lowercase for the account endpoint ---
     def get_position_mode(self, symbol: str, product_type: str, margin_coin: str) -> str:
         data = self._signed_get(
             "/api/v2/mix/account/account",
@@ -143,7 +140,6 @@ class BuySell:
             }
         )
         return data["data"]["posMode"]  # 'hedge_mode' or 'one_way_mode'
-
 
     def set_position_mode_hedge(self, product_type: str) -> str:
         res = self._signed_post(self.SET_POSMODE_PATH, {"productType": product_type, "posMode": "hedge_mode"})
@@ -245,15 +241,51 @@ class BuySell:
 
     def close_short_market(self, symbol: str, size: str, **kwargs) -> Dict[str, Any]:
         return self.place_mix_order(symbol, size, side="sell", trade_side="close", order_type="market", **kwargs)
+    
+    # ---------- SPOT order helpers ----------
+    def place_spot_order(
+        self,
+        symbol: str,
+        size: str,
+        side: Literal["buy", "sell"],
+        order_type: Literal["market", "limit"] = "market",
+        *,
+        price: Optional[str] = None,
+        client_oid: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Place a spot order. Uses Bitget spot create-order endpoint.
 
-    def open_long_limit(self, symbol: str, size: str, price: str, **kwargs) -> Dict[str, Any]:
-        return self.place_mix_order(symbol, size, side="buy", trade_side="open", order_type="limit", price=price, **kwargs)
+        Note: Bitget's exact field names may vary; this helper uses the common
+        fields: `symbol`, `side`, `type`, `price`, `size`, `clientOid`.
+        If Bitget returns an error about invalid parameters, adapt the body
+        to the exact API contract (e.g., use `quantity` instead of `size`).
+        """
+        if order_type == "limit" and not price:
+            raise ValueError("price is required for limit orders")
 
-    def close_long_limit(self, symbol: str, size: str, price: str, **kwargs) -> Dict[str, Any]:
-        return self.place_mix_order(symbol, size, side="buy", trade_side="close", order_type="limit", price=price, **kwargs)
+        path = "/api/spot/v1/trade/orders"
+        body: Dict[str, Any] = {
+            "symbol": symbol,
+            "side": side,
+            "type": order_type,
+            "size": size,
+            "clientOid": client_oid or uuid.uuid4().hex,
+        }
+        if price is not None:
+            body["price"] = price
 
-    def open_short_limit(self, symbol: str, size: str, price: str, **kwargs) -> Dict[str, Any]:
-        return self.place_mix_order(symbol, size, side="sell", trade_side="open", order_type="limit", price=price, **kwargs)
+        return self._signed_post(path, body)
 
-    def close_short_limit(self, symbol: str, size: str, price: str, **kwargs) -> Dict[str, Any]:
-        return self.place_mix_order(symbol, size, side="sell", trade_side="close", order_type="limit", price=price, **kwargs)
+    def buy_spot_market(self, symbol: str, size: str, **kwargs) -> Dict[str, Any]:
+        return self.place_spot_order(symbol, size, side="buy", order_type="market", **kwargs)
+
+    def sell_spot_market(self, symbol: str, size: str, **kwargs) -> Dict[str, Any]:
+        return self.place_spot_order(symbol, size, side="sell", order_type="market", **kwargs)
+
+    def buy_spot_limit(self, symbol: str, size: str, price: str, **kwargs) -> Dict[str, Any]:
+        return self.place_spot_order(symbol, size, side="buy", order_type="limit", price=price, **kwargs)
+
+    def sell_spot_limit(self, symbol: str, size: str, price: str, **kwargs) -> Dict[str, Any]:
+        return self.place_spot_order(symbol, size, side="sell", order_type="limit", price=price, **kwargs)
+    
