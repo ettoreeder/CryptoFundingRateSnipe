@@ -1,2 +1,6 @@
 /API_keys.json
 /__pycache__
+*.csv
+*.png
+*.pdf
+*.svg
